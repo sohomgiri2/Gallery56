@@ -1,0 +1,6 @@
+{
+  "name": "Gallery56",
+  "description": "BEYOND GALLERY. BEYOND IMAGINATION. Offline-first native Android photography ecosystem featuring Advanced Search 2.0, On-Device AI Intelligence, Face Organization, and MediaStore Gallery.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
