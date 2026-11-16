@@ -88,6 +88,8 @@ enum class CollageLayoutTemplate(val label: String, val slotCount: Int) {
     EDITORIAL_3("3 Editorial", 3),
     GRID_4("4 Grid", 4),
     GRID_6("6 Grid", 6),
+    FREEFORM_SCRAPBOOK("Freeform", 4),
+    MUSEUM_FRAME("Museum Frame", 2),
 }
 
 @Composable
@@ -491,15 +493,80 @@ private fun renderCollageBitmap(
                 RectF(s * 3f + cw * 2f, s * 2f + ch, w - s, h - s),
             )
         }
+        CollageLayoutTemplate.FREEFORM_SCRAPBOOK -> {
+            listOf(
+                RectF(w * 0.06f, h * 0.08f, w * 0.56f, h * 0.54f),
+                RectF(w * 0.44f, h * 0.06f, w * 0.94f, h * 0.52f),
+                RectF(w * 0.08f, h * 0.44f, w * 0.58f, h * 0.92f),
+                RectF(w * 0.42f, h * 0.46f, w * 0.92f, h * 0.94f),
+            )
+        }
+        CollageLayoutTemplate.MUSEUM_FRAME -> {
+            if (uris.size <= 1) {
+                val pad = (s + w * 0.10f).coerceAtMost(w * 0.24f)
+                listOf(RectF(pad, pad, w - pad, h - pad))
+            } else {
+                val pad = (s + w * 0.07f).coerceAtMost(w * 0.16f)
+                val cw = (w - pad * 2f - s) / 2f
+                listOf(
+                    RectF(pad, pad * 1.15f, pad + cw, h - pad * 1.15f),
+                    RectF(pad + cw + s, pad * 1.15f, w - pad, h - pad * 1.15f),
+                )
+            }
+        }
     }
 
+    val freeformAngles = listOf(-7.5f, 5.5f, 4.5f, -6.0f)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x55000000
+    }
+    val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFF8FAFC.toInt()
+        style = Paint.Style.FILL
+    }
+    val matOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x44CBD5E1
+        style = Paint.Style.STROKE
+        strokeWidth = (outputSize * 0.004f).coerceAtLeast(2f)
+    }
+
     val maxTargetPx = (outputSize / 2).coerceAtLeast(512)
     rects.forEachIndexed { index, rect ->
         val uriStr = uris[index % uris.size]
         val src = decodeSampledBitmap(context, Uri.parse(uriStr), maxTargetPx) ?: return@forEachIndexed
         try {
             canvas.save()
+            if (template == CollageLayoutTemplate.FREEFORM_SCRAPBOOK) {
+                val angle = freeformAngles[index % freeformAngles.size]
+                canvas.rotate(angle, rect.centerX(), rect.centerY())
+                val framePad = (outputSize * 0.014f).coerceAtLeast(8f)
+                val shadowRect = RectF(
+                    rect.left - framePad + 6f,
+                    rect.top - framePad + 10f,
+                    rect.right + framePad + 6f,
+                    rect.bottom + framePad + 10f,
+                )
+                canvas.drawRoundRect(shadowRect, cornerRadius, cornerRadius, shadowPaint)
+                val outerRect = RectF(
+                    rect.left - framePad,
+                    rect.top - framePad,
+                    rect.right + framePad,
+                    rect.bottom + framePad,
+                )
+                canvas.drawRoundRect(outerRect, cornerRadius, cornerRadius, borderPaint)
+            } else if (template == CollageLayoutTemplate.MUSEUM_FRAME) {
+                val matPad = (outputSize * 0.028f).coerceAtLeast(14f)
+                val outerRect = RectF(
+                    rect.left - matPad,
+                    rect.top - matPad,
+                    rect.right + matPad,
+                    rect.bottom + matPad,
+                )
+                canvas.drawRoundRect(outerRect, cornerRadius * 0.35f, cornerRadius * 0.35f, borderPaint)
+                canvas.drawRoundRect(outerRect, cornerRadius * 0.35f, cornerRadius * 0.35f, matOutlinePaint)
+            }
+
             val clipPath = Path().apply {
                 addRoundRect(rect, cornerRadius, cornerRadius, Path.Direction.CW)
             }

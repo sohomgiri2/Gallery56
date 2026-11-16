@@ -17,6 +17,7 @@ import com.example.core.security.VaultCryptoManager
 import com.example.feature.backup.BackupRestoreManager
 import com.example.feature.editor.CropAspectPreset
 import com.example.feature.editor.EditorFilterPreset
+import com.example.feature.editor.EditorTextLayer
 import com.example.feature.editor.PhotoEditState
 import com.example.feature.editor.PhotoEditorEngine
 import com.example.ui.theme.CustomThemeProfile
@@ -87,7 +88,7 @@ class Gallery56RescueEnginesTest {
                 rotationDegrees = 90,
                 cropPreset = CropAspectPreset.SQUARE,
                 filter = EditorFilterPreset.NOIR,
-                overlayText = "G56",
+                textLayers = listOf(EditorTextLayer(id = "t_rescue", text = "G56")),
             ),
         )
 

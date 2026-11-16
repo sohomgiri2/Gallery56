@@ -5,16 +5,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,23 +20,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.DriveFileMove
+import androidx.compose.material.icons.rounded.DriveFileRenameOutline
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.GridView
@@ -53,6 +44,7 @@ import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Sort
+import androidx.compose.material.icons.rounded.ViewQuilt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -84,8 +76,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.core.datastore.GalleryLayoutId
+import com.example.core.designsystem.Gallery56TopBar
 import com.example.core.designsystem.GlassPanel
-import com.example.core.designsystem.MediaThumbnailTile
 import com.example.core.designsystem.MetricPill
 import com.example.core.designsystem.SectionHeader
 import com.example.core.media.MediaAccessLevel
@@ -96,7 +89,6 @@ import com.example.ui.theme.StatusAmber
 import com.example.ui.theme.StatusEmerald
 import com.example.ui.theme.StatusRose
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GalleryHomeScreen(
     uiState: GalleryHomeUiState,
@@ -110,6 +102,7 @@ fun GalleryHomeScreen(
     onToggleSelectItem: (Long) -> Unit,
     onSelectAllVisible: () -> Unit,
     onFavoriteSelected: (Boolean) -> Unit,
+    onBatchRenameSelected: (String) -> Unit,
     onAddSelectedToAlbum: (Long) -> Unit,
     onCopySelectedToFolder: (String) -> Unit,
     onMoveSelectedToTrash: () -> Unit,
@@ -118,6 +111,7 @@ fun GalleryHomeScreen(
     onOpenMedia: (Long) -> Unit,
     onOpenSearch: () -> Unit,
     onOpenAiStudio: () -> Unit,
+    onOpenLayoutStudio: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tokens = LocalGallery56Tokens.current
@@ -127,7 +121,13 @@ fun GalleryHomeScreen(
     var showAlbumPickerDialog by remember { mutableStateOf(false) }
     var showCopyFolderDialog by remember { mutableStateOf(false) }
     var copyFolderName by remember { mutableStateOf("Gallery56_Copies") }
+    var showBatchRenameDialog by remember { mutableStateOf(false) }
+    var renamePrefix by remember { mutableStateOf("Gallery56_Photo") }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
+    val activeLayout = remember(uiState.preferences.galleryLayoutId) {
+        GalleryLayoutId.fromId(uiState.preferences.galleryLayoutId)
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
@@ -149,19 +149,17 @@ fun GalleryHomeScreen(
         onRefreshSync()
     }
 
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(uiState.preferences.gridColumns.coerceIn(2, 5)),
-        modifier = modifier
-            .fillMaxSize()
-            .testTag("gallery_home_grid"),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(tokens.gridSpacing),
-        verticalArrangement = Arrangement.spacedBy(tokens.gridSpacing),
-    ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
+    GalleryLayoutRenderer(
+        layoutId = activeLayout,
+        uiState = uiState,
+        modifier = modifier.testTag("gallery_home_grid"),
+        onSelectAlbum = onSelectAlbum,
+        onSelectBucket = onSelectBucket,
+        onToggleSelectItem = onToggleSelectItem,
+        onOpenMedia = onOpenMedia,
+        headerContent = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (uiState.isSelectionMode) {
-                    // Contextual Multi-Select Action Bar
                     GlassPanel(
                         borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
                         contentPadding = 12.dp,
@@ -184,6 +182,7 @@ fun GalleryHomeScreen(
                                 Text(
                                     text = "${uiState.selectedIds.size} selected",
                                     style = MaterialTheme.typography.titleMedium,
+                                    color = tokens.semantic.textPrimary,
                                 )
                             }
                             Row {
@@ -223,6 +222,14 @@ fun GalleryHomeScreen(
                                 Text("Add to Album")
                             }
                             FilledTonalButton(
+                                onClick = { showBatchRenameDialog = true },
+                                enabled = uiState.selectedIds.isNotEmpty(),
+                            ) {
+                                Icon(Icons.Rounded.DriveFileRenameOutline, null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Batch Rename")
+                            }
+                            FilledTonalButton(
                                 onClick = { showCopyFolderDialog = true },
                                 enabled = uiState.selectedIds.isNotEmpty(),
                             ) {
@@ -250,79 +257,19 @@ fun GalleryHomeScreen(
                         }
                     }
                 } else {
-                    // Header
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "GALLERY56",
-                                style = MaterialTheme.typography.headlineMedium,
-                                color = MaterialTheme.colorScheme.onBackground,
-                            )
-                            Text(
-                                text = "BEYOND GALLERY. BEYOND IMAGINATION.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Single-line responsive TopAppBar preventing title wrapping
+                    Gallery56TopBar(
+                        title = "GALLERY56",
+                        subtitle = "BEYOND GALLERY. BEYOND IMAGINATION.",
+                        primaryActions = {
                             IconButton(
-                                onClick = { onToggleSelectionMode(true) },
-                                modifier = Modifier.testTag("enter_select_mode_btn"),
+                                onClick = onOpenLayoutStudio,
+                                modifier = Modifier.testTag("home_layout_studio_btn"),
                             ) {
                                 Icon(
-                                    imageVector = Icons.Rounded.SelectAll,
-                                    contentDescription = "Multi-select mode",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Box {
-                                IconButton(
-                                    onClick = { sortMenuOpen = true },
-                                    modifier = Modifier.testTag("gallery_sort_button"),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Sort,
-                                        contentDescription = "Sort gallery",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                DropdownMenu(
-                                    expanded = sortMenuOpen,
-                                    onDismissRequest = { sortMenuOpen = false },
-                                ) {
-                                    GallerySortOrder.entries.forEach { order ->
-                                        DropdownMenuItem(
-                                            text = { Text(order.label) },
-                                            onClick = {
-                                                sortMenuOpen = false
-                                                onSelectSortOrder(order)
-                                            },
-                                        )
-                                    }
-                                }
-                            }
-                            IconButton(
-                                onClick = {
-                                    val next = when (uiState.preferences.gridColumns) {
-                                        2 -> 3
-                                        3 -> 4
-                                        4 -> 5
-                                        else -> 2
-                                    }
-                                    onCycleGridColumns(next)
-                                },
-                                modifier = Modifier.testTag("cycle_grid_button"),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.GridView,
-                                    contentDescription = "Switch grid columns",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    imageVector = Icons.Rounded.ViewQuilt,
+                                    contentDescription = "Gallery Layout Studio",
+                                    tint = MaterialTheme.colorScheme.primary,
                                 )
                             }
                             IconButton(
@@ -339,20 +286,68 @@ fun GalleryHomeScreen(
                                     tint = MaterialTheme.colorScheme.primary,
                                 )
                             }
-                            IconButton(
-                                onClick = onRefreshSync,
-                                modifier = Modifier.testTag("refresh_media_button"),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Refresh,
-                                    contentDescription = "Rescan MediaStore",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        },
+                        overflowContent = { dismiss ->
+                            DropdownMenuItem(
+                                text = { Text("Multi-Select Media") },
+                                leadingIcon = { Icon(Icons.Rounded.SelectAll, null) },
+                                onClick = {
+                                    dismiss()
+                                    onToggleSelectionMode(true)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Sort: ${uiState.sortOrder.label}") },
+                                leadingIcon = { Icon(Icons.Rounded.Sort, null) },
+                                onClick = {
+                                    dismiss()
+                                    sortMenuOpen = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Grid Columns (${uiState.preferences.gridColumns})") },
+                                leadingIcon = { Icon(Icons.Rounded.GridView, null) },
+                                onClick = {
+                                    dismiss()
+                                    val next = when (uiState.preferences.gridColumns) {
+                                        2 -> 3
+                                        3 -> 4
+                                        4 -> 5
+                                        5 -> 6
+                                        else -> 2
+                                    }
+                                    onCycleGridColumns(next)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Rescan MediaStore") },
+                                leadingIcon = { Icon(Icons.Rounded.Refresh, null) },
+                                onClick = {
+                                    dismiss()
+                                    onRefreshSync()
+                                },
+                            )
+                        },
+                    )
+
+                    Box {
+                        DropdownMenu(
+                            expanded = sortMenuOpen,
+                            onDismissRequest = { sortMenuOpen = false },
+                        ) {
+                            GallerySortOrder.entries.forEach { order ->
+                                DropdownMenuItem(
+                                    text = { Text(order.label) },
+                                    onClick = {
+                                        sortMenuOpen = false
+                                        onSelectSortOrder(order)
+                                    },
                                 )
                             }
                         }
                     }
 
-                    // Quick Search 2.0 & AI Studio Entry Bar
+                    // Search 2.0 + AI Hub Entry Bar
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -377,7 +372,7 @@ fun GalleryHomeScreen(
                                 Text(
                                     text = "Search 2.0 (OCR, AI, EXIF, GPS)",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = tokens.semantic.textSecondary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -402,7 +397,7 @@ fun GalleryHomeScreen(
                                 Text(
                                     text = "AI Hub",
                                     style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurface,
+                                    color = tokens.semantic.textPrimary,
                                 )
                             }
                         }
@@ -423,6 +418,7 @@ fun GalleryHomeScreen(
                             Text(
                                 text = uiState.statusNote,
                                 style = MaterialTheme.typography.bodySmall,
+                                color = tokens.semantic.textPrimary,
                                 modifier = Modifier.weight(1f),
                             )
                             TextButton(onClick = onDismissStatusNote) {
@@ -450,7 +446,7 @@ fun GalleryHomeScreen(
                     )
                 }
 
-                // Quick Buckets
+                // Quick Buckets Bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -461,13 +457,20 @@ fun GalleryHomeScreen(
                         FilterChip(
                             selected = uiState.selectedBucket == bucket,
                             onClick = { onSelectBucket(bucket) },
-                            label = { Text(bucket.label, style = MaterialTheme.typography.labelLarge) },
+                            label = {
+                                Text(
+                                    bucket.label,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            },
                             modifier = Modifier.testTag("bucket_chip_${bucket.name.lowercase()}"),
                         )
                     }
                 }
 
-                // Albums Row
+                // Fixed Folder Cards with High-Contrast Semantic Typography
                 if (uiState.albums.isNotEmpty()) {
                     SectionHeader(
                         title = "Folders & Collections",
@@ -488,30 +491,30 @@ fun GalleryHomeScreen(
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(uiState.albums, key = { it.name }) { album ->
                             val isSelected = uiState.selectedAlbum == album.name
-                            Column(
+                            GlassPanel(
+                                onClick = { onSelectAlbum(album.name) },
+                                contentPadding = 8.dp,
+                                containerColor = if (isSelected) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    tokens.elevatedSurface
+                                },
+                                borderColor = if (isSelected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    tokens.semantic.cardBorder
+                                },
+                                shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier
-                                    .width(104.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                                        else tokens.glassSurface,
-                                    )
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) MaterialTheme.colorScheme.primary else tokens.glassBorder,
-                                        RoundedCornerShape(14.dp),
-                                    )
-                                    .clickable { onSelectAlbum(album.name) }
-                                    .padding(6.dp)
+                                    .width(114.dp)
                                     .testTag("album_card_${album.name}"),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(66.dp)
+                                        .height(68.dp)
                                         .clip(RoundedCornerShape(10.dp))
-                                        .background(tokens.elevatedSurface),
+                                        .background(tokens.semantic.background),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     if (album.coverUri != null) {
@@ -528,37 +531,44 @@ fun GalleryHomeScreen(
                                         Icon(
                                             imageVector = Icons.Rounded.FolderOpen,
                                             contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            tint = MaterialTheme.colorScheme.primary,
                                         )
                                     }
                                 }
+                                Spacer(Modifier.height(6.dp))
                                 Text(
                                     text = album.name,
-                                    style = MaterialTheme.typography.labelLarge,
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                                    color = tokens.semantic.textPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
                                     text = "${album.count} items",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = tokens.semantic.textSecondary,
+                                    maxLines = 1,
                                 )
                             }
                         }
                     }
                 }
 
-                // Active view count row
+                // Active view count & layout pill row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "${uiState.selectedAlbum ?: uiState.selectedBucket.label} • ${uiState.sortOrder.label}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
+                        text = "${uiState.selectedAlbum ?: uiState.selectedBucket.label} • ${activeLayout.displayName}",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = tokens.semantic.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
+                    Spacer(Modifier.width(8.dp))
                     MetricPill(
                         label = "${uiState.items.size} items",
                         icon = Icons.Rounded.PhotoLibrary,
@@ -570,116 +580,59 @@ fun GalleryHomeScreen(
                     )
                 }
             }
-        }
-
-        if (uiState.items.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                GlassPanel(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 20.dp),
+        },
+        emptyContent = {
+            GlassPanel(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 20.dp),
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.PhotoLibrary,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(40.dp),
-                        )
-                        Text(
-                            text = "No device media matched this view",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            text = "Grant MediaStore library access or import photos directly using Android's zero-permission Photo Picker.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Button(
-                                onClick = {
-                                    permissionLauncher.launch(MediaPermissionHelper.requiredPermissionsForSdk())
-                                },
-                                modifier = Modifier.testTag("empty_grant_access_btn"),
-                            ) {
-                                Text("Grant Access")
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    photoPickerLauncher.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
-                                    )
-                                },
-                                modifier = Modifier.testTag("empty_picker_btn"),
-                            ) {
-                                Text("Photo Picker")
-                            }
+                    Icon(
+                        imageVector = Icons.Rounded.PhotoLibrary,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(40.dp),
+                    )
+                    Text(
+                        text = "No device media matched this view",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = tokens.semantic.textPrimary,
+                    )
+                    Text(
+                        text = "Grant MediaStore library access or import photos directly using Android's zero-permission Photo Picker.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.semantic.textSecondary,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(
+                            onClick = {
+                                permissionLauncher.launch(MediaPermissionHelper.requiredPermissionsForSdk())
+                            },
+                            modifier = Modifier.testTag("empty_grant_access_btn"),
+                        ) {
+                            Text("Grant Access")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                photoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
+                                )
+                            },
+                            modifier = Modifier.testTag("empty_picker_btn"),
+                        ) {
+                            Text("Photo Picker")
                         }
                     }
                 }
             }
-        } else {
-            items(uiState.items, key = { it.mediaStoreId }) { item ->
-                val isSelected = item.mediaStoreId in uiState.selectedIds
-                Box(
-                    modifier = Modifier.combinedClickable(
-                        onClick = {
-                            if (uiState.isSelectionMode) {
-                                onToggleSelectItem(item.mediaStoreId)
-                            } else {
-                                onOpenMedia(item.mediaStoreId)
-                            }
-                        },
-                        onLongClick = { onToggleSelectItem(item.mediaStoreId) },
-                    ),
-                ) {
-                    MediaThumbnailTile(
-                        media = item,
-                        isSelected = isSelected,
-                        onClick = {
-                            if (uiState.isSelectionMode) {
-                                onToggleSelectItem(item.mediaStoreId)
-                            } else {
-                                onOpenMedia(item.mediaStoreId)
-                            }
-                        },
-                        overlayBottomEnd = if (uiState.isSelectionMode) {
-                            {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopStart)
-                                        .padding(6.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            if (isSelected) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                                        )
-                                        .padding(3.dp),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.CheckCircle,
-                                        contentDescription = if (isSelected) "Selected" else "Not selected",
-                                        tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                }
-                            }
-                        } else null,
-                    )
-                }
-            }
-        }
+        },
+    )
 
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-    }
-
-    // Add to Custom Album Dialog
     if (showAlbumPickerDialog) {
         AlertDialog(
             onDismissRequest = { showAlbumPickerDialog = false },
@@ -702,7 +655,7 @@ fun GalleryHomeScreen(
                                     .padding(12.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
-                                Text(album.name, style = MaterialTheme.typography.titleSmall)
+                                Text(album.name, style = MaterialTheme.typography.titleSmall, color = tokens.semantic.textPrimary)
                             }
                         }
                     }
@@ -714,7 +667,34 @@ fun GalleryHomeScreen(
         )
     }
 
-    // Copy to Folder Dialog
+    if (showBatchRenameDialog) {
+        AlertDialog(
+            onDismissRequest = { showBatchRenameDialog = false },
+            title = { Text("Batch Rename (${uiState.selectedIds.size})") },
+            text = {
+                OutlinedTextField(
+                    value = renamePrefix,
+                    onValueChange = { renamePrefix = it },
+                    label = { Text("Filename Prefix") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                Button(
+                    enabled = renamePrefix.isNotBlank(),
+                    onClick = {
+                        onBatchRenameSelected(renamePrefix)
+                        showBatchRenameDialog = false
+                    },
+                ) { Text("Rename") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatchRenameDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
+
     if (showCopyFolderDialog) {
         AlertDialog(
             onDismissRequest = { showCopyFolderDialog = false },
@@ -742,7 +722,6 @@ fun GalleryHomeScreen(
         )
     }
 
-    // Delete / Trash Confirmation Dialog
     if (showDeleteConfirmDialog) {
         val selectedMedia = uiState.items.filter { it.mediaStoreId in uiState.selectedIds }
         val realMediaStoreUris = selectedMedia.filter { it.mediaStoreId > 0L }.map { Uri.parse(it.contentUri) }
@@ -793,6 +772,7 @@ private fun PermissionStatusBanner(
     onRequestMediaPermission: () -> Unit,
     onLaunchPhotoPicker: () -> Unit,
 ) {
+    val tokens = LocalGallery56Tokens.current
     val isPartial = accessLevel == MediaAccessLevel.PARTIAL_ACCESS
     val accent = if (isPartial) StatusAmber else MaterialTheme.colorScheme.primary
 
@@ -820,6 +800,7 @@ private fun PermissionStatusBanner(
                         "Connect Device Media Library"
                     },
                     style = MaterialTheme.typography.titleSmall,
+                    color = tokens.semantic.textPrimary,
                 )
                 Text(
                     text = if (isPartial) {
@@ -828,7 +809,7 @@ private fun PermissionStatusBanner(
                         "Allow MediaStore access to discover photos, videos, EXIF & GPS offline, or use the zero-permission Photo Picker."
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = tokens.semantic.textSecondary,
                 )
             }
         }

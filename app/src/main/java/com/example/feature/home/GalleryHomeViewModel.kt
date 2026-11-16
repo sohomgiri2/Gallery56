@@ -37,11 +37,15 @@ enum class GalleryQuickBucket(val label: String) {
     PHOTOS("Photos"),
     VIDEOS("Videos"),
     RECENTLY_ADDED("Recently Added"),
+    RECENTLY_VIEWED("Recently Viewed"),
+    RECENTLY_EDITED("Recently Edited"),
     CAMERA("Camera"),
     SCREENSHOTS("Screenshots"),
     DOWNLOADS("Downloads"),
     FAVORITES("Favorites"),
     DOCUMENTS("Documents"),
+    LARGE_FILES("Large Files"),
+    BURSTS("Bursts"),
     GEO("Geo-Tagged"),
 }
 
@@ -135,23 +139,30 @@ class GalleryHomeViewModel(
                 GalleryQuickBucket.PHOTOS -> !item.isVideo
                 GalleryQuickBucket.VIDEOS -> item.isVideo
                 GalleryQuickBucket.RECENTLY_ADDED -> item.dateTakenMillis >= recentCutoff || item.dateModifiedMillis >= recentCutoff
+                GalleryQuickBucket.RECENTLY_VIEWED -> item.lastViewedAtMillis > 0L
+                GalleryQuickBucket.RECENTLY_EDITED -> item.lastEditedAtMillis > 0L
                 GalleryQuickBucket.CAMERA -> pathLower.contains("dcim") || albumLower == "camera"
-                GalleryQuickBucket.SCREENSHOTS -> item.isScreenshot
+                GalleryQuickBucket.SCREENSHOTS -> item.isScreenshot || albumLower.contains("screenshot")
                 GalleryQuickBucket.DOWNLOADS -> pathLower.contains("download") || albumLower.contains("download")
                 GalleryQuickBucket.FAVORITES -> item.isFavorite
                 GalleryQuickBucket.DOCUMENTS -> item.isDocument
+                GalleryQuickBucket.LARGE_FILES -> item.fileSizeBytes >= 5L * 1024L * 1024L
+                GalleryQuickBucket.BURSTS -> item.groupId.isNotBlank() || item.displayName.contains("burst", ignoreCase = true)
                 GalleryQuickBucket.GEO -> item.hasGps
             }
             val albumOk = album == null || item.albumName.equals(album, ignoreCase = true)
             bucketOk && albumOk
         }
 
-        val sorted = when (sort) {
-            GallerySortOrder.DATE_DESC -> filtered.sortedByDescending { it.dateTakenMillis }
-            GallerySortOrder.DATE_ASC -> filtered.sortedBy { it.dateTakenMillis }
-            GallerySortOrder.NAME_ASC -> filtered.sortedBy { it.displayName.lowercase(Locale.US) }
-            GallerySortOrder.NAME_DESC -> filtered.sortedByDescending { it.displayName.lowercase(Locale.US) }
-            GallerySortOrder.SIZE_DESC -> filtered.sortedByDescending { it.fileSizeBytes }
+        val sorted = when {
+            bucket == GalleryQuickBucket.RECENTLY_VIEWED -> filtered.sortedByDescending { it.lastViewedAtMillis }
+            bucket == GalleryQuickBucket.RECENTLY_EDITED -> filtered.sortedByDescending { it.lastEditedAtMillis }
+            sort == GallerySortOrder.DATE_DESC -> filtered.sortedByDescending { it.dateTakenMillis }
+            sort == GallerySortOrder.DATE_ASC -> filtered.sortedBy { it.dateTakenMillis }
+            sort == GallerySortOrder.NAME_ASC -> filtered.sortedBy { it.displayName.lowercase(Locale.US) }
+            sort == GallerySortOrder.NAME_DESC -> filtered.sortedByDescending { it.displayName.lowercase(Locale.US) }
+            sort == GallerySortOrder.SIZE_DESC -> filtered.sortedByDescending { it.fileSizeBytes }
+            else -> filtered
         }
 
         val albumPreviews = allMedia
@@ -240,6 +251,10 @@ class GalleryHomeViewModel(
         viewModelScope.launch { preferencesManager.setGridColumns(cols) }
     }
 
+    fun setGalleryLayout(layoutId: String) {
+        viewModelScope.launch { preferencesManager.setGalleryLayoutId(layoutId) }
+    }
+
     fun toggleSelectionMode(active: Boolean? = null) {
         val next = active ?: !selectionModeFlow.value
         selectionModeFlow.value = next
@@ -268,6 +283,23 @@ class GalleryHomeViewModel(
         viewModelScope.launch {
             ids.forEach { mediaIndexDao.setFavorite(it, favorite) }
             statusNoteFlow.value = "Updated ${ids.size} favorite(s)"
+            toggleSelectionMode(false)
+        }
+    }
+
+    fun batchRenameSelected(prefix: String) {
+        val clean = prefix.trim()
+        if (clean.isEmpty()) return
+        val selected = uiState.value.items.filter { it.mediaStoreId in selectedIdsFlow.value }
+        if (selected.isEmpty()) return
+        viewModelScope.launch {
+            selected.forEachIndexed { index, item ->
+                val ext = item.fileName.substringAfterLast('.', if (item.isVideo) "mp4" else "jpg")
+                val nextDisplay = "${clean}_${index + 1}"
+                val nextFile = "$nextDisplay.$ext"
+                mediaIndexDao.renameDisplayName(item.mediaStoreId, nextDisplay, nextFile)
+            }
+            statusNoteFlow.value = "Renamed ${selected.size} indexed item(s) with prefix '$clean'"
             toggleSelectionMode(false)
         }
     }
@@ -342,11 +374,6 @@ class GalleryHomeViewModel(
             toggleSelectionMode(false)
             onDone(encrypted)
         }
-    }
-
-    fun getSelectedMediaItems(): List<MediaIndexEntity> {
-        val ids = selectedIdsFlow.value
-        return uiState.value.items.filter { it.mediaStoreId in ids }
     }
 
     fun clearStatusNote() {

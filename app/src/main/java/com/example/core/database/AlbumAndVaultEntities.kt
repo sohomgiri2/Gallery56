@@ -12,6 +12,8 @@ data class CustomAlbumEntity(
     val coverUri: String? = null,
     val isPinned: Boolean = false,
     val createdAtMillis: Long = System.currentTimeMillis(),
+    val colorLabelHex: String = "",
+    val sortOrder: Int = 0,
 )
 
 @Entity(

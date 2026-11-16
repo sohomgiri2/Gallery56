@@ -4,9 +4,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
@@ -17,6 +20,8 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,15 +30,22 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Compare
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
@@ -42,11 +54,14 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.ImageSearch
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Slideshow
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.Wallpaper
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -60,6 +75,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -83,15 +99,23 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.core.database.MediaIndexEntity
+import com.example.core.datastore.ViewerBackgroundMode
 import com.example.core.designsystem.GlassPanel
 import com.example.core.designsystem.MediaThumbnailTile
 import com.example.core.designsystem.MetricPill
 import com.example.core.designsystem.formatBytesReadable
 import com.example.core.media.MediaStoreOperations
+import com.example.feature.smart.ColorAnalysisReport
+import com.example.feature.smart.RgbHistogramChart
+import com.example.feature.smart.SmartCollectionsEngine
+import com.example.ui.theme.LocalGallery56Tokens
 import com.example.ui.theme.StatusAmber
 import com.example.ui.theme.StatusEmerald
 import com.example.ui.theme.StatusRose
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -102,6 +126,7 @@ fun MediaViewerScreen(
     initialMediaId: Long,
     allMedia: List<MediaIndexEntity>,
     uiState: MediaViewerUiState,
+    viewerBackgroundMode: ViewerBackgroundMode = ViewerBackgroundMode.AMOLED_BLACK,
     onActiveMediaChanged: (Long) -> Unit,
     onBack: () -> Unit,
     onToggleFavorite: () -> Unit,
@@ -137,11 +162,30 @@ fun MediaViewerScreen(
 
     val media = mediaList.getOrNull(pagerState.currentPage) ?: uiState.media
     var showInspectorSheet by remember { mutableStateOf(false) }
+    var isSlideshowRunning by remember { mutableStateOf(false) }
+    var compareTargetItem by remember { mutableStateOf<MediaIndexEntity?>(null) }
+    var showComparePicker by remember { mutableStateOf(false) }
+
+    val canvasBgColor = when (viewerBackgroundMode) {
+        ViewerBackgroundMode.AMOLED_BLACK -> Color.Black
+        ViewerBackgroundMode.DARK_GRAPHITE -> Color(0xFF141820)
+        ViewerBackgroundMode.ADAPTIVE_THEME -> MaterialTheme.colorScheme.background
+    }
+
+    LaunchedEffect(isSlideshowRunning, mediaList.size) {
+        if (isSlideshowRunning && mediaList.size > 1) {
+            while (isSlideshowRunning) {
+                delay(3_000L)
+                val nextPage = (pagerState.currentPage + 1) % mediaList.size
+                pagerState.animateScrollToPage(nextPage)
+            }
+        }
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(canvasBgColor)
             .testTag("media_viewer_screen"),
     ) {
         if (mediaList.isEmpty() && media == null) {
@@ -203,6 +247,19 @@ fun MediaViewerScreen(
 
             if (media != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    IconButton(
+                        onClick = { isSlideshowRunning = !isSlideshowRunning },
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(if (isSlideshowRunning) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.55f))
+                            .testTag("viewer_slideshow_button"),
+                    ) {
+                        Icon(
+                            imageVector = if (isSlideshowRunning) Icons.Rounded.Pause else Icons.Rounded.Slideshow,
+                            contentDescription = if (isSlideshowRunning) "Pause slideshow" else "Start slideshow",
+                            tint = if (isSlideshowRunning) MaterialTheme.colorScheme.onPrimary else Color.White,
+                        )
+                    }
                     IconButton(
                         onClick = onToggleFavorite,
                         modifier = Modifier
@@ -302,6 +359,14 @@ fun MediaViewerScreen(
                             Text("Edit")
                         }
                         FilledTonalButton(
+                            onClick = { showComparePicker = true },
+                            modifier = Modifier.testTag("viewer_compare_btn"),
+                        ) {
+                            Icon(Icons.Rounded.Compare, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Compare")
+                        }
+                        FilledTonalButton(
                             onClick = {
                                 scope.launch {
                                     val ok = MediaStoreOperations.setAsWallpaper(context, media.contentUri)
@@ -325,6 +390,34 @@ fun MediaViewerScreen(
                             Spacer(Modifier.width(4.dp))
                             Text("Player")
                         }
+                    }
+                    FilledTonalButton(
+                        onClick = {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Media URI", media.contentUri))
+                            Toast.makeText(context, "Media URI copied to clipboard", Toast.LENGTH_SHORT).show()
+                        },
+                    ) {
+                        Icon(Icons.Rounded.ContentCopy, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Copy URI")
+                    }
+                    FilledTonalButton(
+                        onClick = {
+                            try {
+                                val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(Uri.parse(media.contentUri), media.mimeType)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(viewIntent, "Open with"))
+                            } catch (_: Throwable) {
+                                Toast.makeText(context, "No external app found", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Open With")
                     }
                     FilledTonalButton(
                         onClick = {
@@ -526,6 +619,47 @@ fun MediaViewerScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
+                if (!media.isVideo) {
+                    var colorReport by remember(media.mediaStoreId) { mutableStateOf<ColorAnalysisReport?>(null) }
+                    LaunchedEffect(media.mediaStoreId) {
+                        colorReport = withContext(Dispatchers.IO) {
+                            try {
+                                val bmp = context.contentResolver.openInputStream(Uri.parse(media.contentUri))?.use {
+                                    BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = 4 })
+                                }
+                                bmp?.let {
+                                    val r = SmartCollectionsEngine.analyzeBitmapColors(it)
+                                    it.recycle()
+                                    r
+                                }
+                            } catch (_: Throwable) {
+                                null
+                            }
+                        }
+                    }
+                    colorReport?.let { report ->
+                        HorizontalDivider()
+                        Text("RGB Color Histogram & Palette", style = MaterialTheme.typography.titleSmall)
+                        RgbHistogramChart(
+                            report = report,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(110.dp),
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            report.dominantColors.forEach { colorInt ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(colorInt))
+                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+                                )
+                            }
+                        }
+                    }
+                }
+
                 if (uiState.visuallySimilar.isNotEmpty()) {
                     HorizontalDivider()
                     Text("Visually Similar in Library", style = MaterialTheme.typography.titleSmall)
@@ -545,6 +679,105 @@ fun MediaViewerScreen(
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
+            }
+        }
+    }
+
+    if (showComparePicker && media != null) {
+        val candidates = remember(allMedia, media.mediaStoreId) {
+            allMedia.filter { !it.isVideo && it.mediaStoreId != media.mediaStoreId }.take(60)
+        }
+        AlertDialog(
+            onDismissRequest = { showComparePicker = false },
+            title = { Text("Pick Photo to Compare Side-by-Side") },
+            text = {
+                if (candidates.isEmpty()) {
+                    Text("No other photos available in library.")
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(260.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        items(candidates, key = { it.mediaStoreId }) { cand ->
+                            Box(
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        compareTargetItem = cand
+                                        showComparePicker = false
+                                    },
+                            ) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context).data(cand.contentUri).size(200).build(),
+                                    contentDescription = cand.displayName,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showComparePicker = false }) { Text("Close") }
+            },
+        )
+    }
+
+    if (compareTargetItem != null && media != null) {
+        val second = compareTargetItem!!
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+        ) {
+            Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context).data(media.contentUri).build(),
+                        contentDescription = media.displayName,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                    )
+                    Text(
+                        text = "A: ${media.displayName}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier.padding(8.dp),
+                        maxLines = 1,
+                    )
+                }
+                Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context).data(second.contentUri).build(),
+                        contentDescription = second.displayName,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                    )
+                    Text(
+                        text = "B: ${second.displayName}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier.padding(8.dp),
+                        maxLines = 1,
+                    )
+                }
+            }
+            IconButton(
+                onClick = { compareTargetItem = null },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(12.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.7f)),
+            ) {
+                Icon(Icons.Rounded.Close, contentDescription = "Exit comparison", tint = Color.White)
             }
         }
     }

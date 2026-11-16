@@ -73,6 +73,15 @@ interface MediaIndexDao {
     @Query("UPDATE media_index SET faceCount = 0")
     suspend fun clearFaceCounts()
 
+    @Query("UPDATE media_index SET lastViewedAtMillis = :timestamp WHERE mediaStoreId = :id")
+    suspend fun markViewed(id: Long, timestamp: Long)
+
+    @Query("UPDATE media_index SET lastEditedAtMillis = :timestamp WHERE mediaStoreId = :id")
+    suspend fun markEdited(id: Long, timestamp: Long)
+
+    @Query("UPDATE media_index SET displayName = :displayName, fileName = :fileName WHERE mediaStoreId = :id")
+    suspend fun renameDisplayName(id: Long, displayName: String, fileName: String)
+
     @Query("DELETE FROM media_index WHERE mediaStoreId IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
 

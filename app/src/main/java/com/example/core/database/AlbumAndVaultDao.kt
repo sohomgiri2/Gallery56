@@ -8,10 +8,10 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface CustomAlbumDao {
-    @Query("SELECT * FROM custom_albums ORDER BY isPinned DESC, createdAtMillis DESC")
+    @Query("SELECT * FROM custom_albums ORDER BY isPinned DESC, sortOrder ASC, createdAtMillis DESC")
     fun observeAllAlbums(): Flow<List<CustomAlbumEntity>>
 
-    @Query("SELECT * FROM custom_albums ORDER BY isPinned DESC, createdAtMillis DESC")
+    @Query("SELECT * FROM custom_albums ORDER BY isPinned DESC, sortOrder ASC, createdAtMillis DESC")
     suspend fun getAllAlbumsSnapshot(): List<CustomAlbumEntity>
 
     @Query("SELECT * FROM custom_album_members")
@@ -34,6 +34,12 @@ interface CustomAlbumDao {
 
     @Query("UPDATE custom_albums SET coverUri = :coverUri WHERE albumId = :albumId")
     suspend fun setCoverUri(albumId: Long, coverUri: String?)
+
+    @Query("UPDATE custom_albums SET colorLabelHex = :colorHex WHERE albumId = :albumId")
+    suspend fun updateColorLabel(albumId: Long, colorHex: String)
+
+    @Query("UPDATE custom_albums SET sortOrder = :sortOrder WHERE albumId = :albumId")
+    suspend fun updateSortOrder(albumId: Long, sortOrder: Int)
 
     @Query("DELETE FROM custom_album_members WHERE albumId = :albumId AND mediaStoreId = :mediaStoreId")
     suspend fun removeMember(albumId: Long, mediaStoreId: Long)

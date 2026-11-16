@@ -103,9 +103,20 @@ class MediaViewerViewModel(
         initialValue = MediaViewerUiState(),
     )
 
+    init {
+        if (initialMediaStoreId > 0L) {
+            viewModelScope.launch {
+                mediaIndexDao.markViewed(initialMediaStoreId, System.currentTimeMillis())
+            }
+        }
+    }
+
     fun setActiveMediaId(id: Long) {
         if (activeMediaIdFlow.value != id) {
             activeMediaIdFlow.value = id
+            viewModelScope.launch {
+                mediaIndexDao.markViewed(id, System.currentTimeMillis())
+            }
         }
     }
 

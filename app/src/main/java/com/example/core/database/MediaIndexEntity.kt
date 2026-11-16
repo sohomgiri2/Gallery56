@@ -96,6 +96,8 @@ data class MediaIndexEntity(
     val faceCount: Int = 0,
     val aiIndexedAtMillis: Long = 0L,
     val indexVersion: Int = 0,
+    val lastViewedAtMillis: Long = 0L,
+    val lastEditedAtMillis: Long = 0L,
 ) {
     val megaPixels: Float
         get() = if (width > 0 && height > 0) (width.toLong() * height.toLong()) / 1_000_000f else 0f
